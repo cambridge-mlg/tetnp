@@ -1,0 +1,73 @@
+model:
+  _target_: tetnp.models.tetnp.TETNP
+  encoder: ${tetnp_encoder}
+  decoder: ${tnp_decoder}
+  likelihood: ${likelihood}
+
+tetnp_encoder:
+  _target_: tetnp.models.tetnp.TETNPEncoder
+  transformer_encoder: ${transformer_encoder}
+  y_encoder: ${y_encoder}
+
+transformer_encoder:
+  _target_: tetnp.networks.tetransformer.TETNPTransformerEncoder
+  mhca_layer: ${mhca_layer}
+  num_layers: ${params.num_layers}
+
+mhca_layer:
+  _target_: tetnp.networks.teattention_layers.MultiHeadCrossTEAttentionLayer
+  embed_dim: ${params.embed_dim}
+  num_heads: ${params.num_heads}
+  head_dim: ${params.head_dim}
+  kernel: ${mhca_kernel}
+  feedforward_dim: ${params.embed_dim}
+  norm_first: ${params.norm_first}
+
+mhca_kernel:
+  _target_: tnp.networks.mlp.MLP
+  in_dim: ${eval:'${params.num_heads} + ${params.dim_x}'}
+  out_dim: ${params.num_heads}
+  num_layers: 2
+  width: ${params.embed_dim}
+
+y_encoder:
+  _target_: tnp.networks.mlp.MLP
+  in_dim: ${eval:'${params.dim_y} + 1'}
+  out_dim: ${params.embed_dim}
+  num_layers: 2
+  width: ${params.embed_dim}
+
+tnp_decoder:
+  _target_: tnp.models.tnp.TNPDecoder
+  z_decoder: ${z_decoder}
+
+z_decoder:
+  _target_: tnp.networks.mlp.MLP
+  in_dim: ${params.embed_dim}
+  out_dim: ${eval:'2 * ${params.dim_y}'}
+  num_layers: 2
+  width: ${params.embed_dim}
+
+likelihood:
+  _target_: tnp.likelihoods.gaussian.HeteroscedasticNormalLikelihood
+
+optimiser:
+  _target_: torch.optim.AdamW
+  _partial_: True
+  lr: 5.0e-4
+
+params:
+  epochs: 200
+  embed_dim: 128
+  num_heads: 8
+  head_dim: 16
+  norm_first: True
+  num_layers: 5
+
+
+misc:
+  name: TETNP-L${params.num_layers}-H${params.num_heads}-D${params.embed_dim}
+  resume_from_checkpoint: null
+  gradient_clip_val: 0.5
+  plot_interval: 10
+  logging: False
