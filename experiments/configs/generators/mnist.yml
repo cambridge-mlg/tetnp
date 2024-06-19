@@ -1,0 +1,26 @@
+generators:
+  train:
+    _target_: tetnp.data.mnist.MNISTGenerator
+    min_pc: 0.1
+    max_pc: 0.5
+    data_dir: /Users/matt/projects/tnp-pp/data
+    train: True
+    download: True
+    samples_per_epoch: 16_000
+    batch_size: 16
+  val:
+    _target_: tetnp.data.mnist.MNISTGenerator
+    min_pc: 0.1
+    max_pc: 0.5
+    data_dir: /Users/matt/projects/tnp-pp/data
+    train: False
+    download: True
+    samples_per_epoch: 4096
+    batch_size: 16
+
+params:
+  dim_x: 2
+  dim_y: 1
+
+misc:
+  project: mnist

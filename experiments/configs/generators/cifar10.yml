@@ -1,0 +1,29 @@
+generators:
+  train:
+    _target_: tetnp.data.cifar10.CIFAR10Generator
+    min_pc: 0.01
+    max_pc: 0.3
+    data_dir: /Users/matt/projects/tnp-pp/data
+    nt: 1000
+    train: False
+    download: False
+    samples_per_epoch: 16_000
+    batch_size: 16
+
+  val:
+    _target_: tetnp.data.cifar10.CIFAR10Generator
+    min_pc: 0.01
+    max_pc: 0.3
+    data_dir: /Users/matt/projects/tnp-pp/data
+    nt: 1000
+    train: False
+    download: False
+    samples_per_epoch: 4096
+    batch_size: 16
+
+params:
+  dim_x: 2
+  dim_y: 3
+
+misc:
+  project: cifar10
