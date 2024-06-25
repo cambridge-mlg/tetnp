@@ -1,9 +1,11 @@
 import lightning.pytorch as pl
 from plot import plot
+from plot_era5 import plot_era5
 from plot_image import plot_image
 from tnp.utils.experiment_utils import initialize_experiment
 from tnp.utils.lightning_utils import LitWrapper
 
+from tetnp.data.era5 import ERA5DataGenerator
 from tetnp.data.image import ImageGenerator
 
 
@@ -24,6 +26,22 @@ def main():
                 num_fig=min(5, len(batches)),
                 figsize=(6, 6),
                 name=name,
+            )
+        elif isinstance(gen_train, ERA5DataGenerator):
+            plot_era5(
+                model=model,
+                batches=batches,
+                x_mean=gen_val.x_mean,
+                x_std=gen_val.x_std,
+                y_mean=gen_val.y_mean,
+                y_std=gen_val.y_std,
+                num_fig=min(5, len(batches)),
+                figsize=(24.0, 5.0),
+                lat_range=gen_val.lat_range,
+                lon_range=gen_val.lon_range,
+                time_idx=[0, -1],
+                name=name,
+                use_time=gen_val.use_time,
             )
         else:
             plot(
