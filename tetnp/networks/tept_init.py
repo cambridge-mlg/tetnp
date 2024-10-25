@@ -38,22 +38,22 @@ class PseudoTokenInitialiser(nn.Module):
         return self.raw_head_weights.softmax(dim=0)
 
     @check_shapes(
+        "zq: [m, nq, dz]",
+        "zkv: [m, nkv, dz]",
         "xq: [m, nq, dx]",
         "xkv: [m, nkv, dx]",
-        "tq: [m, nq, dt]",
-        "tkv: [m, nkv, dt]",
-        "return[0]: [m, nq, dx]",
-        "return[1]: [m, nq, dt]",
+        "return[0]: [m, nq, dz]",
+        "return[1]: [m, nq, dx]",
     )
     def forward(
         self,
+        zq: torch.Tensor,
+        zkv: torch.Tensor,
         xq: torch.Tensor,
         xkv: torch.Tensor,
-        tq: torch.Tensor,
-        tkv: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        q = self.to_q(xq)
-        k = self.to_k(xkv)
+        q = self.to_q(zq)
+        k = self.to_k(zkv)
 
         # Each of shape (m, num_heads, n, head_dim).
         q, k = map(
@@ -61,18 +61,18 @@ class PseudoTokenInitialiser(nn.Module):
             (q, k),
         )
 
-        tkv_ = einops.repeat(tkv, "m n d -> m h n d", h=self.num_heads)
+        xkv_ = einops.repeat(xkv, "m n d -> m h n d", h=self.num_heads)
 
-        tq_update = (
+        xq_update = (
             nn.functional.scaled_dot_product_attention(  # pylint: disable=not-callable
-                q, k, tkv_, scale=self.scale
+                q, k, xkv_, scale=self.scale
             )
         )
 
         # Now do weighted sum over heads.
-        tq_update = einops.rearrange(tq_update, "m h n d -> m n d h")
-        tq_update = tq_update @ self.head_weights
+        xq_update = einops.rearrange(xq_update, "m h n d -> m n d h")
+        xq_update = xq_update @ self.head_weights
 
-        tq_out = tq + tq_update
+        xq_out = xq + xq_update
 
-        return xq, tq_out
+        return zq, xq_out

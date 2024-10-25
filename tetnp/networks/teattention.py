@@ -48,32 +48,32 @@ class BaseMultiHeadTEAttention(nn.Module, ABC):
         self.phi = phi
 
     @check_shapes(
+        "zq: [m, nq, dz]",
+        "zk: [m, nkv, dz]",
+        "zv: [m, nkv, dz]",
         "xq: [m, nq, dx]",
-        "xk: [m, nkv, dx]",
-        "xv: [m, nkv, dx]",
-        "tq: [m, nq, dt]",
-        "tk: [m, nkv, dt]",
+        "xkv: [m, nkv, dx]",
         "mask: [m, nq, nkv]",
-        "return[0]: [m, nq, dx]",
-        "return[1]: [m, nq, dt]",
+        "return[0]: [m, nq, dz]",
+        "return[1]: [m, nq, dx]",
     )
     def propagate(
         self,
+        zq: torch.Tensor,
+        zk: torch.Tensor,
+        zv: torch.Tensor,
         xq: torch.Tensor,
-        xk: torch.Tensor,
-        xv: torch.Tensor,
-        tq: torch.Tensor,
-        tk: torch.Tensor,
+        xkv: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Computes multi-head translation equivariant attention.
 
         Args:
-            xq (torch.Tensor): Query token.
-            xk (torch.Tensor): Key token.
-            xv (torch.Tensor): Value token.
-            tq (torch.Tensor): Query input locations.
-            tk (torch.Tensor): Key input locations.
+            zq (torch.Tensor): Query token.
+            zk (torch.Tensor): Key token.
+            zv (torch.Tensor): Value token.
+            xq (torch.Tensor): Query input locations.
+            xkv (torch.Tensor): Key input locations.
             mask (Optional[torch.Tensor], optional): Query-key mask. Defaults to None.
 
         Returns:
@@ -81,12 +81,12 @@ class BaseMultiHeadTEAttention(nn.Module, ABC):
         """
         # Compute output of group action.
         # (m, nq, nkv, dx).
-        diff = self.group_action(tq, tk)
+        diff = self.group_action(xq, xkv)
 
         # Compute token attention.
-        q = self.to_q(xq)
-        k = self.to_k(xk)
-        v = self.to_v(xv)
+        q = self.to_q(zq)
+        k = self.to_k(zk)
+        v = self.to_v(zv)
 
         # Each of shape (m, {num_heads, qk_dim}, n, head_dim).
         q, k, v = map(
@@ -115,35 +115,35 @@ class BaseMultiHeadTEAttention(nn.Module, ABC):
         # Also update spatio-temporal locations if necessary.
         if self.phi:
             phi_input = einops.rearrange(attn, "m h n p -> m n p h")
-            t_dots = self.phi(phi_input)
-            tq_new = tq + (diff * t_dots).mean(-2)
+            x_dots = self.phi(phi_input)
+            xq_new = xq + (diff * x_dots).mean(-2)
         else:
-            tq_new = tq
+            xq_new = xq
 
-        return out, tq_new
+        return out, xq_new
 
 
 class MultiHeadTEAttention(BaseMultiHeadTEAttention):
     @check_shapes(
+        "zq: [m, nq, dz]",
+        "zk: [m, nkv, dz]",
+        "zv: [m, nkv, dz]",
         "xq: [m, nq, dx]",
-        "xk: [m, nkv, dx]",
-        "xv: [m, nkv, dx]",
-        "tq: [m, nq, dt]",
-        "tk: [m, nkv, dt]",
+        "xkv: [m, nkv, dx]",
         "mask: [m, nq, nkv]",
-        "return[0]: [m, nq, dx]",
-        "return[1]: [m, nq, dt]",
+        "return[0]: [m, nq, dz]",
+        "return[1]: [m, nq, dx]",
     )
     def forward(
         self,
+        zq: torch.Tensor,
+        zk: torch.Tensor,
+        zv: torch.Tensor,
         xq: torch.Tensor,
-        xk: torch.Tensor,
-        xv: torch.Tensor,
-        tq: torch.Tensor,
-        tk: torch.Tensor,
+        xkv: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return super().propagate(xq, xk, xv, tq, tk, mask)
+        return super().propagate(zq, zk, zv, xq, xkv, mask)
 
 
 class MultiHeadSelfTEAttention(BaseMultiHeadTEAttention):
@@ -156,19 +156,19 @@ class MultiHeadSelfTEAttention(BaseMultiHeadTEAttention):
         super().__init__(qk_dim=embed_dim, v_dim=embed_dim, **kwargs)
 
     @check_shapes(
+        "z: [m, n, dz]",
         "x: [m, n, dx]",
-        "t: [m, n, dt]",
         "mask: [m, n, n]",
-        "return[0]: [m, n, dx]",
-        "return[1]: [m, n, dt]",
+        "return[0]: [m, n, dz]",
+        "return[1]: [m, n, dx]",
     )
     def forward(
         self,
+        z: torch.Tensor,
         x: torch.Tensor,
-        t: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return super().propagate(x, x, x, t, t, mask)
+        return super().propagate(z, z, z, x, x, mask)
 
 
 class MultiHeadCrossTEAttention(BaseMultiHeadTEAttention):
@@ -181,20 +181,20 @@ class MultiHeadCrossTEAttention(BaseMultiHeadTEAttention):
         super().__init__(qk_dim=embed_dim, v_dim=embed_dim, **kwargs)
 
     @check_shapes(
+        "zq: [m, nq, dz]",
+        "zk: [m, nk, dz]",
         "xq: [m, nq, dx]",
         "xk: [m, nk, dx]",
-        "tq: [m, nq, dt]",
-        "tk: [m, nk, dt]",
         "mask: [m, nq, nk]",
-        "return[0]: [m, nq, dx]",
-        "return[1]: [m, nq, dt]",
+        "return[0]: [m, nq, dz]",
+        "return[1]: [m, nq, dx]",
     )
     def forward(
         self,
+        zq: torch.Tensor,
+        zk: torch.Tensor,
         xq: torch.Tensor,
         xk: torch.Tensor,
-        tq: torch.Tensor,
-        tk: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return super().propagate(xq, xk, xk, tq, tk, mask)
+        return super().propagate(zq, zk, zk, xq, xk, mask)

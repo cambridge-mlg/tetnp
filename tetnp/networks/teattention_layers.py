@@ -55,41 +55,41 @@ class MultiHeadSelfTEAttentionLayer(MultiHeadTEAttentionLayer):
         super().__init__(embed_dim=embed_dim, attention=attention, **kwargs)
 
     @check_shapes(
+        "z: [m, n, dz]",
         "x: [m, n, dx]",
-        "t: [m, n, dt]",
         "mask: [m, n, n]",
-        "return[0]: [m, n, dx]",
-        "return[1]: [m, n, dt]",
+        "return[0]: [m, n, dz]",
+        "return[1]: [m, n, dx]",
     )
     def attn_block(
         self,
+        z: torch.Tensor,
         x: torch.Tensor,
-        t: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        x, t = self.attn(x, t, mask=mask)
-        return self.attn_dropout(x), t
+        z, x = self.attn(z, x, mask=mask)
+        return self.attn_dropout(z), x
 
     @check_shapes(
+        "z: [m, n, dz]",
         "x: [m, n, dx]",
-        "t: [m, n, dt]",
         "mask: [m, n, n]",
-        "return[0]: [m, n, dx]",
-        "return[1]: [m, n, dt]",
+        "return[0]: [m, n, dz]",
+        "return[1]: [m, n, dx]",
     )
     def forward(
-        self, x: torch.Tensor, t: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self, z: torch.Tensor, x: torch.Tensor, mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         if self.norm_first:
-            x_update, t = self.attn_block(self.norm1(x), t, mask)
-            x = x + x_update
-            x = x + self.ff_block(self.norm2(x))
+            z_update, x = self.attn_block(self.norm1(z), x, mask)
+            z = z + z_update
+            z = z + self.ff_block(self.norm2(z))
         else:
-            x_update, t = self.attn_block(x, t, mask)
-            x = self.norm1(x + x_update)
-            x = self.norm2(x + self.ff_block(x))
+            z_update, x = self.attn_block(z, x, mask)
+            z = self.norm1(z + z_update)
+            z = z + self.ff_block(self.norm2(z))
 
-        return x, t
+        return z, x
 
 
 class MultiHeadCrossTEAttentionLayer(MultiHeadTEAttentionLayer):
@@ -98,51 +98,51 @@ class MultiHeadCrossTEAttentionLayer(MultiHeadTEAttentionLayer):
         super().__init__(embed_dim=embed_dim, attention=attention, **kwargs)
 
     @check_shapes(
+        "zq: [m, nq, dz]",
+        "zk: [m, nk, dz]",
         "xq: [m, nq, dx]",
         "xk: [m, nk, dx]",
-        "tq: [m, nq, dt]",
-        "tk: [m, nk, dt]",
         "mask: [m, nq, nk]",
-        "return[0]: [m, nq, dx]",
-        "return[1]: [m, nq, dt]",
+        "return[0]: [m, nq, dz]",
+        "return[1]: [m, nq, dx]",
     )
     def attn_block(
         self,
+        zq: torch.Tensor,
+        zk: torch.Tensor,
         xq: torch.Tensor,
         xk: torch.Tensor,
-        tq: torch.Tensor,
-        tk: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        xq, tq = self.attn(xq, xk, tq, tk, mask=mask)
-        return self.attn_dropout(xq), tq
+        zq, xq = self.attn(zq, zk, xq, xk, mask=mask)
+        return self.attn_dropout(zq), xq
 
     @check_shapes(
+        "zq: [m, nq, dz]",
+        "zk: [m, nk, dz]",
         "xq: [m, nq, dx]",
         "xk: [m, nk, dx]",
-        "tq: [m, nq, dt]",
-        "tk: [m, nk, dt]",
         "mask: [m, nq, nk]",
-        "return[0]: [m, nq, dx]",
-        "return[1]: [m, nq, dt]",
+        "return[0]: [m, nq, dz]",
+        "return[1]: [m, nq, dx]",
     )
     def forward(
         self,
+        zq: torch.Tensor,
+        zk: torch.Tensor,
         xq: torch.Tensor,
         xk: torch.Tensor,
-        tq: torch.Tensor,
-        tk: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if self.norm_first:
-            xq_update, tq = self.attn_block(
-                self.norm1(xq), self.norm1(xk), tq, tk, mask
+            zq_update, xq = self.attn_block(
+                self.norm1(zq), self.norm1(zk), xq, xk, mask
             )
-            xq = xq + xq_update
-            xq = xq + self.ff_block(self.norm2(xq))
+            zq = zq + zq_update
+            zq = zq + self.ff_block(self.norm2(zq))
         else:
-            xq_update, tq = self.attn_block(xq, xk, tq, tk, mask)
-            xq = self.norm1(xq + xq_update)
-            xq = self.norm2(xq + self.ff_block(xq))
+            zq_update, xq = self.attn_block(zq, zk, xq, xk, mask)
+            zq = self.norm1(zq + zq_update)
+            zq = zq + self.ff_block(self.norm2(zq))
 
-        return xq, tq
+        return zq, xq

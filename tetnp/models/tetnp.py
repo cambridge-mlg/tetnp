@@ -1,3 +1,5 @@
+from typing import Union
+
 import torch
 from check_shapes import check_shapes
 from tnp.models.base import ConditionalNeuralProcess
@@ -5,13 +7,19 @@ from tnp.models.tnp import TNPDecoder
 from tnp.utils.helpers import preprocess_observations
 from torch import nn
 
-from ..networks.tetransformer import TETNPTransformerEncoder
+from ..networks.tetransformer import (
+    TEISTEncoder,
+    TEPerceiverEncoder,
+    TETNPTransformerEncoder,
+)
 
 
 class TETNPEncoder(nn.Module):
     def __init__(
         self,
-        transformer_encoder: TETNPTransformerEncoder,
+        transformer_encoder: Union[
+            TETNPTransformerEncoder, TEPerceiverEncoder, TEISTEncoder
+        ],
         y_encoder: nn.Module,
     ):
         super().__init__()

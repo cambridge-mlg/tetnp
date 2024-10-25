@@ -26,15 +26,15 @@ class TETransformerEncoder(nn.Module):
         self.layers = _get_clones(encoder_layer, num_layers)
 
     @check_shapes(
-        "x: [m, n, d]", "t: [m, n, dt]", "mask: [m, n, n]", "return: [m, n, d]"
+        "z: [m, n, d]", "x: [m, n, dx]", "mask: [m, n, n]", "return: [m, n, d]"
     )
     def forward(
-        self, x: torch.Tensor, t: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self, z: torch.Tensor, x: torch.Tensor, mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         for layer in self.layers:
-            x, t = layer(x, t, mask)
+            z, x = layer(z, x, mask)
 
-        return x
+        return z
 
 
 class TETNPTransformerEncoder(nn.Module):
@@ -54,19 +54,19 @@ class TETNPTransformerEncoder(nn.Module):
         )
 
     @check_shapes(
+        "zc: [m, nc, dz]",
+        "zt: [m, nt, dz]",
         "xc: [m, nc, dx]",
         "xt: [m, nt, dx]",
-        "tc: [m, nc, dt]",
-        "tt: [m, nt, dt]",
         "mask: [m, nt, nc]",
-        "return: [m, nt, d]",
+        "return: [m, nt, dz]",
     )
     def forward(
         self,
+        zc: torch.Tensor,
+        zt: torch.Tensor,
         xc: torch.Tensor,
         xt: torch.Tensor,
-        tc: torch.Tensor,
-        tt: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if mask is not None:
@@ -74,15 +74,15 @@ class TETNPTransformerEncoder(nn.Module):
 
         for mhsa_layer, mhca_layer in zip(self.mhsa_layers, self.mhca_layers):
             if isinstance(mhsa_layer, MultiHeadSelfTEAttentionLayer):
-                xc, tc = mhsa_layer(xc, tc)
+                zc, xc = mhsa_layer(zc, xc)
             elif isinstance(mhsa_layer, MultiHeadCrossTEAttentionLayer):
-                xc, tc = mhsa_layer(xc, xc, tc, tc)
+                zc, xc = mhsa_layer(zc, zc, xc, xc)
             else:
                 raise TypeError("Unknown layer type.")
 
-            xt, tt = mhca_layer(xt, xc, tt, tc)
+            zt, xt = mhca_layer(zt, zc, xt, xc)
 
-        return xt
+        return zt
 
 
 class BaseTEPerceiverEncoder(nn.Module, ABC):
@@ -98,9 +98,7 @@ class BaseTEPerceiverEncoder(nn.Module, ABC):
     ):
         super().__init__()
 
-        assert mhsa_layer.embed_dim == mhca_ctoq_layer.embed_dim, "embed_dim mismatch."
-        assert mhsa_layer.embed_dim == mhca_qtot_layer.embed_dim, "embed_dim mismatch."
-
+        # Initialise pseudo-tokens and pseudo-locations.
         self.embed_dim = mhsa_layer.embed_dim
         self.latent_tokens = nn.Parameter(torch.randn(num_latents, self.embed_dim))
         self.latent_inputs = nn.Parameter(torch.randn(num_latents, dim))
@@ -110,51 +108,47 @@ class BaseTEPerceiverEncoder(nn.Module, ABC):
         self.mhca_qtot_layers = _get_clones(mhca_qtot_layer, num_layers)
 
         if pseudo_token_initialiser is None:
-            self.pseudo_token_initialiser = lambda xq, xc, tq, tc: (
-                xq,
-                tq + tc.mean(-2, keepdim=True),
+            self.pseudo_token_initialiser = lambda zq, zc, xq, xc: (
+                zq,
+                xq + xc.mean(-2, keepdim=True),
             )
         else:
             self.pseudo_token_initialiser = pseudo_token_initialiser
 
 
 class TEPerceiverEncoder(BaseTEPerceiverEncoder):
-    tq_cache: Optional[torch.Tensor] = None
-
     @check_shapes(
+        "zc: [m, nc, dz]",
+        "zt: [m, nt, dz]",
         "xc: [m, nc, dx]",
         "xt: [m, nt, dx]",
-        "tc: [m, nc, dt]",
-        "tt: [m, nt, dt]",
         "mask: [m, nq, n]",
-        "return: [m, nq, dx]",
+        "return: [m, nq, dz]",
     )
     def forward(
         self,
+        zc: torch.Tensor,
+        zt: torch.Tensor,
         xc: torch.Tensor,
         xt: torch.Tensor,
-        tc: torch.Tensor,
-        tt: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if mask is not None:
             warnings.warn("mask is not currently being used.")
 
-        xq = einops.repeat(self.latent_tokens, "l e -> m l e", m=xc.shape[0])
-        tq = einops.repeat(self.latent_inputs, "l d -> m l d", m=xc.shape[0])
+        zq = einops.repeat(self.latent_tokens, "l e -> m l e", m=zc.shape[0])
+        xq = einops.repeat(self.latent_inputs, "l d -> m l d", m=zc.shape[0])
 
-        # Now initialise pseudo-tokens.
-        xq, tq = self.pseudo_token_initialiser(xq, xc, tq, tc)
-
-        # Add mean of context input-locations to make translation equivariant.
+        # Initialise pseudo-tokens.
+        zq, xq = self.pseudo_token_initialiser(zq, zc, xq, xc)
         for mhsa_layer, mhca_ctoq_layer, mhca_qtot_layer in zip(
             self.mhsa_layers, self.mhca_ctoq_layers, self.mhca_qtot_layers
         ):
-            xq, tq = mhca_ctoq_layer(xq, xc, tq, tc)
-            xq, tq = mhsa_layer(xq, tq)
-            xt, tt = mhca_qtot_layer(xt, xq, tt, tq)
+            zq, xq = mhca_ctoq_layer(zq, zc, xq, xc)
+            zq, xq = mhsa_layer(zq, xq)
+            zt, xt = mhca_qtot_layer(zt, zq, xt, xq)
 
-        return xt
+        return zt
 
 
 class BaseTEISTEncoder(nn.Module, ABC):
@@ -170,13 +164,7 @@ class BaseTEISTEncoder(nn.Module, ABC):
     ):
         super().__init__()
 
-        assert (
-            mhca_ctoq_layer.embed_dim == mhca_qtoc_layer.embed_dim
-        ), "embed_dim mismatch."
-        assert (
-            mhca_ctoq_layer.embed_dim == mhca_qtot_layer.embed_dim
-        ), "embed_dim mismatch."
-
+        # Initialise pseudo-tokens and pseudo-locations.
         embed_dim = mhca_ctoq_layer.embed_dim
         self.latent_tokens = nn.Parameter(torch.randn(num_latents, embed_dim))
         self.latent_inputs = nn.Parameter(torch.randn(num_latents, dim))
@@ -186,9 +174,9 @@ class BaseTEISTEncoder(nn.Module, ABC):
         self.mhca_qtot_layers = _get_clones(mhca_qtot_layer, num_layers)
 
         if pseudo_token_initialiser is None:
-            self.pseudo_token_initialiser = lambda xq, xc, tq, tc: (
-                xq,
-                tq + tc.mean(-2, keepdim=True),
+            self.pseudo_token_initialiser = lambda zq, zc, xq, xc: (
+                zq,
+                xq + xc.mean(-2, keepdim=True),
             )
         else:
             self.pseudo_token_initialiser = pseudo_token_initialiser
@@ -196,39 +184,38 @@ class BaseTEISTEncoder(nn.Module, ABC):
 
 class TEISTEncoder(BaseTEISTEncoder):
     @check_shapes(
+        "zc: [m, nc, dz]",
+        "zt: [m, nt, dz]",
         "xc: [m, nc, dx]",
         "xt: [m, nt, dx]",
-        "tc: [m, nc, dt]",
-        "tt: [m, nt, dt]",
         "mask: [m, nq, n]",
-        "return: [m, nq, dx]",
+        "return: [m, nq, dz]",
     )
     def forward(
         self,
+        zc: torch.Tensor,
+        zt: torch.Tensor,
         xc: torch.Tensor,
         xt: torch.Tensor,
-        tc: torch.Tensor,
-        tt: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if mask is not None:
             warnings.warn("mask is not currently being used.")
 
-        xq = einops.repeat(self.latent_tokens, "l e -> m l e", m=xc.shape[0])
-        tq = einops.repeat(self.latent_inputs, "l d -> m l d", m=xc.shape[0])
+        zq = einops.repeat(self.latent_tokens, "l e -> m l e", m=zc.shape[0])
+        xq = einops.repeat(self.latent_inputs, "l d -> m l d", m=zc.shape[0])
 
-        # Now initialise pseudo-tokens.
-        xq, tq = self.pseudo_token_initialiser(xq, xc, tq, tc)
+        # Initialise pseudo-tokens.
+        zq, xq = self.pseudo_token_initialiser(zq, zc, xq, xc)
 
-        # Cache for plotting.
         for mhca_ctoq_layer, mhca_qtoc_layer, mhca_qtot_layer in zip(
             self.mhca_ctoq_layers, self.mhca_qtoc_layers, self.mhca_qtot_layers
         ):
-            xq, tq = mhca_ctoq_layer(xq, xc, tq, tc)
-            xc, tc = mhca_qtoc_layer(xc, xq, tc, tq)
-            xt, tt = mhca_qtot_layer(xt, xq, tt, tq)
+            zq, xq = mhca_ctoq_layer(zq, zc, xq, xc)
+            zc, xc = mhca_qtoc_layer(zc, zq, xc, xq)
+            zt, xt = mhca_qtot_layer(zt, zq, xt, xq)
 
-        return xt
+        return zt
 
 
 def _get_clones(module: nn.Module, n: int) -> nn.ModuleList:

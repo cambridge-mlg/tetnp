@@ -1,25 +1,19 @@
+from abc import ABC
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import einops
 import torch
 import torchvision
-from tnp.data.base import Batch
+from tnp.data.base import Batch, ImageBatch
 
 
 @dataclass
-class ImageBatch(Batch):
+class BatchWithMask(Batch):
     mc: torch.Tensor
 
 
-@dataclass
-class GriddedImageBatch(ImageBatch):
-    y_grid: torch.Tensor
-    mc_grid: torch.Tensor
-    mt_grid: torch.Tensor
-
-
-class ImageGenerator:
+class ImageGenerator(torch.utils.data.IterableDataset, ABC):
     def __init__(
         self,
         *,
@@ -52,16 +46,6 @@ class ImageGenerator:
         self.num_batches = samples_per_epoch // batch_size
         self.return_as_gridded = return_as_gridded
 
-        # Create batch sampler.
-        sampler = torch.utils.data.RandomSampler(
-            self.dataset, num_samples=samples_per_epoch
-        )
-        self.batch_sampler = iter(
-            torch.utils.data.BatchSampler(
-                sampler, batch_size=batch_size, drop_last=True
-            )
-        )
-
         # Set input mean and std.
         if x_mean is None or x_std is None:
             x = torch.stack(
@@ -83,8 +67,8 @@ class ImageGenerator:
         # Set the batch counter.
         self.batches = 0
 
-    def __len__(self):
-        return self.num_batches
+        # These will be used when creating an iterable.
+        self.batch_sampler: Optional[torch.utils.data.BatchSampler] = None
 
     def __iter__(self):
         """Reset epoch counter and batch sampler and return self."""
@@ -112,15 +96,14 @@ class ImageGenerator:
         self.batches += 1
         return self.generate_batch()
 
-    def generate_batch(self, batch_shape: Optional[torch.Size] = None) -> ImageBatch:
+    def generate_batch(self) -> ImageBatch:
         """Generate batch of data.
 
         Returns:
             Batch: Tuple of tensors containing the context and target data.
         """
 
-        if batch_shape is None:
-            batch_shape = torch.Size((self.batch_size,))
+        batch_shape = torch.Size((self.batch_size,))
 
         # Sample context masks.
         pc = torch.rand(size=()) * (self.max_pc - self.min_pc) + self.min_pc
@@ -157,6 +140,9 @@ class ImageGenerator:
         """
 
         # Sample batch of data.
+        if self.batch_sampler is None:
+            raise ValueError("Batch sampler not set.")
+
         batch_idx = next(self.batch_sampler)
 
         # (batch_size, num_channels, height, width).
@@ -203,6 +189,7 @@ class ImageGenerator:
 
         if self.return_as_gridded:
             # Restructure mask.
+            y_grid = einops.rearrange(y_grid, "m d n1 n2 -> m n1 n2 d")
             mc_grid = einops.rearrange(
                 mc,
                 "m (n1 n2) -> m n1 n2",
@@ -219,17 +206,11 @@ class ImageGenerator:
                     n2=y_grid[0, ...].shape[-2],
                 )
 
-            return GriddedImageBatch(
-                x=x,
-                y=y,
-                xc=xc,
-                yc=yc,
-                xt=xt,
-                yt=yt,
-                mc=mc,
+            return ImageBatch(
                 y_grid=y_grid,
                 mc_grid=mc_grid,
                 mt_grid=mt_grid,
+                yt=yt,
             )
 
-        return ImageBatch(x=x, y=y, xc=xc, yc=yc, xt=xt, yt=yt, mc=mc)
+        return BatchWithMask(x=x, y=y, xc=xc, yc=yc, xt=xt, yt=yt, mc=mc)
