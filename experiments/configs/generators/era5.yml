@@ -4,6 +4,7 @@ generators:
     data_dir: ./data/dataset-derived-near-surface-meteorological-variables-3c127e0b-f66c-442a-a585-867f13ae3929/
     fnames:
       - Tair_WFDE5_CRU_201901_v2.1.nc
+      - Wind_WFDE5_CRU_201901_v2.1.nc
       # - Tair_WFDE5_CRU_201902_v2.1.nc
       # - Tair_WFDE5_CRU_201903_v2.1.nc
       # - Tair_WFDE5_CRU_201904_v2.1.nc
@@ -27,11 +28,13 @@ generators:
     t_spacing: 6
     use_time: True
     return_as_gridded: False
+    data_vars: ["Tair", "Wind"]
   val:
     _target_: tetnp.data.era5.ERA5DataGenerator
     data_dir: ~./data/dataset-derived-near-surface-meteorological-variables-3c127e0b-f66c-442a-a585-867f13ae3929/
     fnames:
       - Tair_WFDE5_CRU_201901_v2.1.nc
+      - Wind_WFDE5_CRU_201901_v2.1.nc
       # - Tair_WFDE5_CRU_201902_v2.1.nc
       # - Tair_WFDE5_CRU_201903_v2.1.nc
       # - Tair_WFDE5_CRU_201904_v2.1.nc

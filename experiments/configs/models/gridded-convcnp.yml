@@ -1,0 +1,55 @@
+model:
+  _target_: tnp.models.convcnp.GriddedConvCNP
+  encoder: ${gridded_convcnp_encoder}
+  decoder: ${tnp_decoder}
+  likelihood: ${likelihood}
+
+gridded_convcnp_encoder:
+  _target_: tnp.models.convcnp.GriddedConvCNPEncoder
+  conv_net: ${cnn}
+  z_encoder: ${z_encoder}
+
+cnn:
+  _target_: tnp.networks.cnn.CNN
+  dim: ${params.dim_x}
+  num_channels: ${params.num_channels}
+  num_blocks: ${params.num_blocks}
+  kernel_size: ${params.kernel_size}
+
+z_encoder:
+  _target_: tnp.networks.mlp.MLP
+  in_dim: ${eval:'${params.dim_y} + 1'}
+  out_dim: ${params.num_channels}
+  num_layers: 2
+  width: ${params.num_channels}
+
+tnp_decoder:
+  _target_: tnp.models.tnp.TNPDecoder
+  z_decoder: ${z_decoder}
+
+z_decoder:
+  _target_: tnp.networks.mlp.MLP
+  in_dim: ${params.num_channels}
+  out_dim: ${eval:'2 * ${params.dim_y}'}
+  num_layers: 2
+  width: ${params.num_channels}
+
+likelihood:
+  _target_: tnp.likelihoods.gaussian.HeteroscedasticNormalLikelihood
+
+optimiser:
+  _target_: torch.optim.AdamW
+  _partial_: True
+  lr: 5.0e-4
+
+params:
+  epochs: 500
+  num_channels: 32
+  num_blocks: 5
+  kernel_size: 9
+
+misc:
+  name: GriddedConvCNP-L${params.num_blocks}-C${params.num_channels}-K${params.kernel_size}
+  resume_from_checkpoint: null
+  gradient_clip_val: 0.5
+  plot_interval: 10

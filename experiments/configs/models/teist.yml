@@ -1,11 +1,11 @@
 model:
-  _target_: tetnp.models.tepttnp.TEPTTNP
-  encoder: ${pttnp_encoder}
-  decoder: ${pttnp_decoder}
+  _target_: tetnp.models.tetnp.TETNP
+  encoder: ${tetnp_encoder}
+  decoder: ${tnp_decoder}
   likelihood: ${likelihood}
 
-pttnp_encoder:
-  _target_: tetnp.models.tepttnp.TEPTTNPEncoder
+tetnp_encoder:
+  _target_: tetnp.models.tetnp.TETNPEncoder
   transformer_encoder: ${teist_encoder}
   y_encoder: ${y_encoder}
 
@@ -73,7 +73,7 @@ y_encoder:
   num_layers: 2
   width: ${params.embed_dim}
 
-pttnp_decoder:
+tnp_decoder:
   _target_: tnp.models.tnp.TNPDecoder
   z_decoder: ${z_decoder}
 
@@ -104,6 +104,5 @@ params:
 misc:
   name: TEIST-L${params.num_layers}-H${params.num_heads}-D${params.embed_dim}-M${params.num_latents}
   resume_from_checkpoint: null
-  logging: False
   plot_interval: 10
   gradient_clip_val: 0.5

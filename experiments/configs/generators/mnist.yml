@@ -8,6 +8,7 @@ generators:
     download: True
     samples_per_epoch: 16_000
     batch_size: 16
+    return_as_gridded: True
   val:
     _target_: tetnp.data.mnist.MNISTGenerator
     min_pc: 0.1
@@ -17,6 +18,7 @@ generators:
     download: True
     samples_per_epoch: 4096
     batch_size: 16
+    return_as_gridded: True
 
 params:
   dim_x: 2
@@ -24,3 +26,6 @@ params:
 
 misc:
   project: mnist
+  logging: False
+  num_workers: 0
+  num_val_workers: 0
