@@ -5,7 +5,7 @@ setuptools.setup(
     version="0.0.1",
     author="Matthew Ashman",
     author_email="mca39@cam.ac.uk",
-    description="Translation equivariance transformer neural processes",
+    description="Translation equivariant transformer neural processes",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
