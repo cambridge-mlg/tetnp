@@ -8,7 +8,8 @@ import torch
 import wandb
 from tnp.data.base import Batch
 from tnp.data.synthetic import SyntheticBatch
-from tnp.utils.experiment_utils import np_pred_fn
+from tnp.models.base import LatentNeuralProcess
+from tnp.utils.np_functions import np_pred_fn
 from torch import nn
 
 matplotlib.rcParams["mathtext.fontset"] = "stix"
@@ -38,24 +39,18 @@ def plot(
     ]
     for i in range(num_fig):
         batch = batches[i]
-        xc = batch.xc[:1]
-        yc = batch.yc[:1]
-        xt = batch.xt[:1]
-        yt = batch.yt[:1]
-
-        batch.xc = xc
-        batch.yc = yc
-        batch.xt = xt
-        batch.yt = yt
+        for key, value in vars(batch).items():
+            if isinstance(value, torch.Tensor):
+                setattr(batch, key, value[:1])
 
         plot_batch = copy.deepcopy(batch)
         plot_batch.xt = x_plot
 
         with torch.no_grad():
-            y_plot_pred_dist = pred_fn(model, plot_batch)
-            yt_pred_dist = pred_fn(model, batch)
+            y_plot_pred_dist = pred_fn(model, plot_batch, num_samples=20)
+            yt_pred_dist = pred_fn(model, batch, num_samples=20)
 
-        model_nll = -yt_pred_dist.log_prob(yt).sum() / batch.yt[..., 0].numel()
+        model_nll = -yt_pred_dist.log_prob(batch.yt).sum() / batch.yt[..., 0].numel()
         mean, std = y_plot_pred_dist.mean, y_plot_pred_dist.stddev
 
         # Make figure for plotting
@@ -63,16 +58,16 @@ def plot(
 
         # Plot context and target points
         plt.scatter(
-            xc[0, :, 0].cpu(),
-            yc[0, :, 0].cpu(),
+            batch.xc[0, :, 0].cpu(),
+            batch.yc[0, :, 0].cpu(),
             c="k",
             label="Context",
             s=30,
         )
 
         plt.scatter(
-            xt[0, :, 0].cpu(),
-            yt[0, :, 0].cpu(),
+            batch.xt[0, :, 0].cpu(),
+            batch.yt[0, :, 0].cpu(),
             c="r",
             label="Target",
             s=30,
@@ -95,20 +90,33 @@ def plot(
             label="Model",
         )
 
-        title_str = f"$N = {xc.shape[1]}$ NLL = {model_nll:.3f}"
+        # Plot samples if neural process.
+        if isinstance(model, LatentNeuralProcess):
+            samples = y_plot_pred_dist.component_distribution.base_dist.loc
+            for sample_idx in range(samples.shape[1]):
+                plt.plot(
+                    x_plot[0, :, 0].cpu(),
+                    samples[0, sample_idx, :, 0].cpu(),
+                    c="tab:blue",
+                    lw=1,
+                    alpha=0.5,
+                    label="Samples" if sample_idx == 0 else None,
+                )
+
+        title_str = f"$N = {batch.xc.shape[1]}$ NLL = {model_nll:.3f}"
 
         if isinstance(batch, SyntheticBatch) and batch.gt_pred is not None:
             with torch.no_grad():
                 gt_mean, gt_std, _ = batch.gt_pred(
-                    xc=xc,
-                    yc=yc,
+                    xc=batch.xc,
+                    yc=batch.yc,
                     xt=x_plot,
                 )
                 _, _, gt_loglik = batch.gt_pred(
-                    xc=xc,
-                    yc=yc,
-                    xt=xt,
-                    yt=yt,
+                    xc=batch.xc,
+                    yc=batch.yc,
+                    xt=batch.xt,
+                    yt=batch.yt,
                 )
                 gt_nll = -gt_loglik.sum() / batch.yt[..., 0].numel()
 

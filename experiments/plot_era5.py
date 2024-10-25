@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import torch
 import wandb
 from tnp.data.base import Batch
-from tnp.utils.experiment_utils import np_pred_fn
+from tnp.utils.np_functions import np_pred_fn
 from torch import nn
 
 from tetnp.data.era5 import GriddedBatch

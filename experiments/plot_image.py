@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import wandb
-from tnp.utils.experiment_utils import np_pred_fn
+from tnp.data.base import ImageBatch
+from tnp.utils.np_functions import np_pred_fn
 from torch import nn
 
-from tetnp.data.image import GriddedImageBatch, ImageBatch
+from tetnp.data.image import BatchWithMask
 
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
@@ -31,32 +32,15 @@ def plot_image(
     for i in range(num_fig):
         batch = batches[i]
 
-        x = batch.x[:1]
-        y = batch.y[:1]
-        xc = batch.xc[:1]
-        yc = batch.yc[:1]
-        xt = batch.xt[:1]
-        yt = batch.yt[:1]
-        mc = batch.mc[:1]
-
-        batch.xc = xc
-        batch.yc = yc
-        batch.xt = xt
-        batch.yt = yt
-
-        if isinstance(batch, GriddedImageBatch):
-            mc_grid = batch.mc_grid[:1]
-            y_grid = batch.y_grid[:1]
-            mt_grid = batch.mt_grid[:1]
-            batch.mc_grid = mc_grid
-            batch.y_grid = y_grid
-            batch.mt_grid = mt_grid
+        for key, value in vars(batch).items():
+            if isinstance(value, torch.Tensor):
+                setattr(batch, key, value[:1])
 
         plot_batch = copy.deepcopy(batch)
-        plot_batch.xt = x
-
-        if isinstance(batch, GriddedImageBatch):
+        if isinstance(batch, ImageBatch):
             plot_batch.mt_grid = torch.full(batch.mt_grid.shape, True)
+        else:
+            plot_batch.xt = batch.x
 
         with torch.no_grad():
             y_plot_pred_dist = pred_fn(model, plot_batch)
@@ -66,9 +50,21 @@ def plot_image(
                 y_plot_pred_dist.mean.cpu().numpy(),
                 y_plot_pred_dist.stddev.cpu().numpy(),
             )
-            model_nll = -yt_pred_dist.log_prob(yt).sum() / batch.yt[..., 0].numel()
+            model_nll = (
+                -yt_pred_dist.log_prob(batch.yt).sum() / batch.yt[..., 0].numel()
+            )
 
         # Reorganise into grid.
+        if isinstance(batch, ImageBatch):
+            mc = batch.mc_grid.flatten(start_dim=1)
+            y = batch.y_grid.flatten(start_dim=1, end_dim=-2)
+            prop_ctx = batch.mc_grid[0].sum() / batch.y_grid[0, ..., 0].numel()
+        else:
+            assert isinstance(batch, BatchWithMask)
+            mc = batch.mc
+            y = batch.y
+            prop_ctx = batch.xc.shape[-2] / batch.x.shape[-2]
+
         if y.shape[-1] == 1:
             # Single channel.
             mc_ = einops.repeat(mc[:1], "m n -> m n d", d=y.shape[-1])
@@ -103,9 +99,7 @@ def plot_image(
             axes[2].set_title("Std prediction", fontsize=18)
 
             plt.suptitle(
-                f"prop_ctx = {xc.shape[-2] / x.shape[-2]:.2f}    "
-                #
-                f"NLL = {model_nll:.3f}",
+                f"prop_ctx = {prop_ctx:.2f}, NLL = {model_nll:.3f}",
                 fontsize=24,
             )
 
